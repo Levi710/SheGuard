@@ -340,32 +340,52 @@ def is_skip_line(line: str) -> bool:
 
 
 def parse_table_format(raw_text: str) -> List[dict]:
-    """Parser A — Row-per-field table layout."""
+    """
+    Parser A -- Row-per-field table layout.
+    Upgraded to look at subsequent lines if the label line is empty.
+    """
     lines      = [l.strip() for l in raw_text.split('\n') if l.strip()]
     field_vals = {}
     max_visits = 0
 
-    for line in lines:
+    for idx, line in enumerate(lines):
         if is_skip_line(line):
             continue
+
         field = match_label(line)
         if field is None:
             continue
-        numbers = find_numbers(line)
+
+        # Look for numbers in current line, and if none, the next 2 lines
+        search_chunk = line
+        if idx + 1 < len(lines): search_chunk += " " + lines[idx + 1]
+        if idx + 2 < len(lines): search_chunk += " " + lines[idx + 2]
+
+        numbers = find_numbers(search_chunk)
         lo, hi  = RANGES[field]
         valid   = [n for n in numbers if lo <= n <= hi]
+
         if valid:
-            field_vals[field] = valid
-            max_visits = max(max_visits, len(valid))
+            # If we already have values for this field, append or merge
+            if field in field_vals:
+                field_vals[field].extend(valid)
+            else:
+                field_vals[field] = valid
+            max_visits = max(max_visits, len(field_vals[field]))
 
     if not field_vals:
         return []
 
-    return [
-        {field: (values[i] if i < len(values) else None)
-         for field, values in field_vals.items()}
-        for i in range(max_visits)
-    ]
+    # Assemble into visits
+    results = []
+    for i in range(max_visits):
+        visit = {}
+        for field in RANGES.keys():
+            vals = field_vals.get(field, [])
+            visit[field] = vals[i] if i < len(vals) else None
+        results.append(visit)
+
+    return results
 
 
 def parse_column_format(raw_text: str) -> List[dict]:

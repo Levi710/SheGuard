@@ -160,10 +160,10 @@ async def predict(request: PredictionRequest):
     )
 
     # Override with clinical rule minimum if needed
-    tier_order = {"GREEN": 0, "AMBER": 1, "RED": 2}
+    tier_order = {AlertTier.GREEN: 0, AlertTier.AMBER: 1, AlertTier.RED: 2}
     if forced_tier is not None:
-        if tier_order[forced_tier] > tier_order[alert_tier.value]:
-            alert_tier = AlertTier(forced_tier)
+        if tier_order[forced_tier] > tier_order[alert_tier]:
+            alert_tier = forced_tier
             suppressed = False
 
     # Action text

@@ -175,6 +175,7 @@ async function extractFromImage() {
     }
 
     const data = await resp.json();
+    console.log("Extraction successful:", data);
 
     if (data.patient_id) {
       const pidField = document.getElementById("patient_id");
@@ -184,6 +185,7 @@ async function extractFromImage() {
       }
     }
 
+    // Clear existing visits
     document.getElementById("visits-container").innerHTML = "";
     visitCount = 0;
 
@@ -202,12 +204,12 @@ async function extractFromImage() {
       <span style="color:${confColor};font-weight:600;">
         Extraction confidence: ${confPct}%
       </span>
-      ${confPct < 80 ? " -- please verify highlighted fields before submitting" : " -- all fields extracted successfully"}
-      ${data.notes ? `<br><span style="color:var(--text-muted);">${data.notes}</span>` : ""}
+      ${confPct < 80 ? " -- verify highlighted fields" : " -- extraction successful"}
+      ${data.notes ? `<br><small>${data.notes}</small>` : ""}
     `;
 
     statusEl.className = "extract-status success";
-    statusEl.textContent = `Extracted ${visits.length} visit${visits.length > 1 ? "s" : ""} -- highlighted fields are auto-filled. Verify before submitting.`;
+    statusEl.textContent = `Extracted ${visits.length} visit${visits.length > 1 ? "s" : ""}. Highlighted fields are auto-filled.`;
 
   } catch (err) {
     statusEl.className = "extract-status error";
@@ -284,9 +286,9 @@ function showResult(data) {
   const tierClass  = { GREEN: "alert-green", AMBER: "alert-amber", RED: "alert-red" };
   const badgeClass = { GREEN: "badge-green", AMBER: "badge-amber", RED: "badge-red" };
   const tierLabel  = {
-    GREEN: "Low risk",
-    AMBER: "Medium risk -- monitor closely",
-    RED:   "High risk -- refer immediately"
+    GREEN: "Normal / Low risk",
+    AMBER: "Elevated risk detected",
+    RED:   "Critical risk -- REFER IMMEDIATELY"
   };
 
   const card = document.getElementById("result-card");

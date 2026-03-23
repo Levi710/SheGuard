@@ -20,7 +20,7 @@ _alert_history: Dict[str, dict] = {}
 
 # ─── Clinical rule safety net ─────────────────────────────────────────────────
 
-def apply_clinical_safety_net(visits_raw: list) -> tuple[str | None, str | None]:
+def apply_clinical_safety_net(visits_raw: list) -> tuple[AlertTier | None, str | None]:
     """
     Checks raw visit values against WHO clinical thresholds.
     Returns (forced_tier, reason) if a rule fires, else (None, None).
@@ -33,16 +33,16 @@ def apply_clinical_safety_net(visits_raw: list) -> tuple[str | None, str | None]
     latest_sys = latest.get("systolic_bp") or 0
     latest_dia = latest.get("diastolic_bp") or 0
 
-    # ── RED RULES ──────────────────────────────────────────────────────────────
+    # --- RED RULES --------------------------------------------------------------
 
-    # Rule 1: Severe hypertension → RED
+    # Rule 1: Severe hypertension -> RED
     if max_systolic >= 160 or max_diastolic >= 110:
-        return "RED", (
+        return AlertTier.RED, (
             f"SystolicBP {max_systolic} mmHg meets WHO severe "
-            f"hypertension threshold (≥160) — emergency referral required"
+            f"hypertension threshold (>=160) -- emergency referral required"
         )
 
-    # Rule 5: Multi-vital simultaneous escalation → RED
+    # Rule 5: Multi-vital simultaneous escalation -> RED
     if len(visits_raw) >= 3:
         first = visits_raw[0]
         last  = visits_raw[-1]
@@ -61,37 +61,37 @@ def apply_clinical_safety_net(visits_raw: list) -> tuple[str | None, str | None]
         if temp_rise >= 0.5: escalating_count += 1
 
         if escalating_count >= 3:
-            return "RED", (
+            return AlertTier.RED, (
                 f"{escalating_count} vitals escalating simultaneously "
                 f"(BP +{sys_rise:.0f} mmHg, HR +{hr_rise:.0f} bpm, "
-                f"BS +{bs_rise:.1f} mmol/L) — combined deterioration "
+                f"BS +{bs_rise:.1f} mmol/L) -- combined deterioration "
                 f"pattern, refer immediately"
             )
 
-    # ── AMBER RULES ────────────────────────────────────────────────────────────
+    # --- AMBER RULES ------------------------------------------------------------
 
-    # Rule 2: Hypertension in pregnancy → AMBER
+    # Rule 2: Hypertension in pregnancy -> AMBER
     if latest_sys >= 140 or latest_dia >= 90:
-        return "AMBER", (
+        return AlertTier.AMBER, (
             f"SystolicBP {latest_sys} mmHg meets WHO hypertension "
-            f"in pregnancy threshold (≥140)"
+            f"in pregnancy threshold (>=140)"
         )
 
-    # Rule 3: Severe hyperglycaemia → AMBER
+    # Rule 3: Severe hyperglycaemia -> AMBER
     if max_bs > 11.1:
-        return "AMBER", (
+        return AlertTier.AMBER, (
             f"Blood sugar {max_bs} mmol/L exceeds gestational "
             f"diabetes threshold (>11.1)"
         )
 
-    # Rule 4: BP escalation pattern → AMBER
+    # Rule 4: BP escalation pattern -> AMBER
     if len(visits_raw) >= 2:
         first_sys = visits_raw[0].get("systolic_bp") or 0
         bp_rise   = latest_sys - first_sys
         if bp_rise >= 20:
-            return "AMBER", (
+            return AlertTier.AMBER, (
                 f"SystolicBP rose {bp_rise:.0f} mmHg across visits "
-                f"— escalation pattern detected"
+                f"-- escalation pattern detected"
             )
 
     return None, None
@@ -120,11 +120,8 @@ def compute_alert_tier(
 
     # Determine tier
     if high_risk_prob >= RED_THRESHOLD:
-        recent_weight = sum(visit_importances[-RED_CONSECUTIVE_VISITS:])
-        if recent_weight > 0.4:
-            tier = AlertTier.RED
-        else:
-            tier = AlertTier.AMBER
+        # If very high confidence, default to RED
+        tier = AlertTier.RED
     elif high_risk_prob >= AMBER_THRESHOLD:
         tier = AlertTier.AMBER
     else:
