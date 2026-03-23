@@ -32,9 +32,12 @@ from typing import Optional, List, Tuple
 
 router = APIRouter()
 
-# ── Tesseract path (Windows) ──────────────────────────────────────────────────
-# Change this path only if you installed Tesseract somewhere else
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+import platform
+
+# ── Tesseract path (Cross-platform) ───────────────────────────────────────────
+if platform.system() == "Windows":
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Note: On Linux/Docker, 'tesseract' is expected to be in the system PATH.
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
