@@ -1,0 +1,39 @@
+# WHY EACH LIBRARY:
+#
+# torch          — PyTorch: the deep learning framework we build Mamba3 in
+#                  It is the industry standard for research models
+#
+# numpy          — Numerical arrays. Everything in ML is numbers in arrays
+#
+# pandas         — Read/process CSV files like the UCI dataset
+#
+# scikit-learn   — Preprocessing (scaling numbers), train/test split, metrics
+#
+# fastapi        — Build the web API so clinics can call our model over the internet
+#                  WHY FASTAPI over Flask: FastAPI is faster, auto-validates inputs,
+#                  auto-generates documentation at /docs — perfect for medical APIs
+#
+# uvicorn        — The web server that runs FastAPI
+#                  Think of FastAPI as the engine, uvicorn as the car body
+#
+# pydantic       — Define and validate the shape of data coming into the API
+#                  Prevents crashes from badly formatted requests
+#
+# shap           — SHapley Additive exPlanations: explains WHY the model decided
+#                  what it decided. Critical for doctors to trust the output.
+#
+# einops         — A library for reshaping tensors with readable syntax
+#                  Makes the model code much cleaner to read
+#
+# matplotlib     — Plots: training curves, feature importance charts
+
+torch>=2.1.0
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.0.0
+shap>=0.44.0
+einops>=0.7.0
+matplotlib>=3.7.0

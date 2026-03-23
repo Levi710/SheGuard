@@ -1,0 +1,107 @@
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║              MAMAGUARD — MODEL EVALUATION REPORT                        ║
+║              Generated automatically by src/evaluate.py                 ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+MODEL
+  Architecture : MamaGuard-Mamba3 (Trapezoidal SSM + MIMO + Complex state)
+  Parameters   : ~287,815
+  Input        : Sequence of prenatal visits (up to 5) × 6 vital signs
+  Output       : 3-class risk prediction (Low / Medium / High)
+  Dataset      : UCI Maternal Health Risk (1,014 rows)
+  Training set : 1525 sequences
+  Validation set: 191 sequences
+
+──────────────────────────────────────────────────────────────────────────
+PERFORMANCE METRICS (on held-out validation set)
+──────────────────────────────────────────────────────────────────────────
+
+  Overall accuracy     : 0.880 (88.0%)
+
+  ROC-AUC per class:
+    Low risk           : 0.977
+    Medium risk        : 0.925
+    High risk          : 0.995
+
+  ** HIGH RISK RECALL (most critical for patient safety):
+    1.000 — of all truly high-risk patients, 100.0% were correctly flagged
+
+  ** HIGH RISK PRECISION (alarm fatigue indicator):
+    0.895 — of all patients flagged high-risk, 89.5% truly were
+
+  Detailed per-class report:
+              precision    recall  f1-score   support
+
+    Low risk      0.917     0.857     0.886        77
+ Medium risk      0.823     0.810     0.816        63
+   High risk      0.895     1.000     0.944        51
+
+    accuracy                          0.880       191
+   macro avg      0.878     0.889     0.882       191
+weighted avg      0.880     0.880     0.878       191
+
+
+──────────────────────────────────────────────────────────────────────────
+CONFUSION MATRIX (raw counts)
+──────────────────────────────────────────────────────────────────────────
+  Rows = true label, Columns = predicted label
+
+                 Pred: Low   Pred: Mid   Pred: High
+  True: Low           66          11            0
+  True: Mid            6          51            6
+  True: High           0           0           51
+
+  Most dangerous mistakes (False Negatives for High Risk):
+    High-risk patients predicted as Low risk  : 0
+    High-risk patients predicted as Mid risk  : 0
+
+──────────────────────────────────────────────────────────────────────────
+HYBRID SYSTEM NOTE
+──────────────────────────────────────────────────────────────────────────
+  MamaGuard uses a HYBRID architecture:
+    1. Mamba3 model: handles subtle temporal patterns (learned from data)
+    2. WHO clinical rules: hard overrides for obvious danger signs
+       - Rule 1: SystolicBP >= 160 -> RED
+       - Rule 2: SystolicBP >= 140 -> AMBER minimum
+       - Rule 3: Blood sugar > 11.1 -> AMBER minimum
+       - Rule 4: BP rise >= 20 mmHg -> AMBER minimum
+       - Rule 5: 3+ vitals escalating simultaneously -> RED
+
+  The metrics above reflect the NEURAL MODEL ONLY (without clinical rules).
+  In deployment, the clinical rules provide an additional safety floor,
+  meaning real-world recall for high-risk cases is higher than shown above.
+
+──────────────────────────────────────────────────────────────────────────
+LIMITATIONS
+──────────────────────────────────────────────────────────────────────────
+  1. SMALL DATASET: Trained on 1,014 rows from a single UCI dataset.
+     Real-world clinical models typically require 10,000–100,000+ samples.
+
+  2. SYNTHETIC SEQUENCES: The UCI dataset has no patient IDs or timestamps.
+     We created artificial 5-visit sequences by sorting rows by age.
+     These do not represent real patient trajectories.
+
+  3. NOT CLINICALLY VALIDATED: This model has NOT been validated against
+     real patient outcomes in a clinical setting. It must NOT be used
+     for actual medical decisions without proper clinical validation trials.
+
+  4. POPULATION BIAS: The UCI dataset was collected from a specific
+     population. Performance may differ on patients from different
+     regions, ethnicities, or healthcare contexts.
+
+  5. RESEARCH PROTOTYPE: This is a proof-of-concept demonstrating the
+     application of Mamba3 SSMs to maternal health risk prediction.
+     The system design (alarm fatigue mitigation, resource-aware routing,
+     OCR auto-fill) represents the primary contribution of this work.
+
+──────────────────────────────────────────────────────────────────────────
+CITATION
+──────────────────────────────────────────────────────────────────────────
+  If you use this work, please cite:
+    MamaGuard: Maternal Mortality Early Warning using Mamba3 Sequential
+    State-Space Models with Clinical Safety Rules.
+    [Your Name], 2025. GitHub: [your-repo-url]
+    Based on: Gu & Dao (2023) Mamba; UCI Maternal Health Risk dataset.
+
+══════════════════════════════════════════════════════════════════════════

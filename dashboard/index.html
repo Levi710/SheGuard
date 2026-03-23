@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="MamaGuard maternal risk assessment dashboard powered by Mamba3 AI">
+  <title>MamaGuard &mdash; Maternal Risk Assessment</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="app-container">
+
+    <!-- Header -->
+    <header class="app-header">
+      <h1>MamaGuard</h1>
+      <p class="subtitle">Maternal risk assessment &mdash; powered by Mamba3 AI</p>
+    </header>
+
+    <!-- Patient Details -->
+    <section class="card" id="patient-section">
+      <h3 class="card-title">Patient details</h3>
+      <p class="card-desc">Fields marked * are required. Leave others blank if not measured.</p>
+
+      <label for="patient_id">Patient ID *</label>
+      <input type="text" id="patient_id" placeholder="e.g. PT-2024-0045" required>
+
+      <label for="staff_available">Clinic staff on duty</label>
+      <input type="number" id="staff_available" placeholder="e.g. 2" min="0">
+
+      <label for="blood_units">O-negative blood units in stock</label>
+      <input type="number" id="blood_units" placeholder="e.g. 4" min="0">
+    </section>
+
+    <!-- Upload Zone -->
+    <section class="card" id="upload-section">
+      <h3 class="card-title">Auto-fill from report photo</h3>
+      <p class="card-desc">
+        Upload a photo or scan of the prenatal record card.
+        AI will read it and fill in all visit fields automatically.
+      </p>
+
+      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+        <span class="upload-icon">&#128247;</span>
+        <div class="upload-title">Tap to upload or drag a photo here</div>
+        <div class="upload-sub">JPEG, PNG, PDF &mdash; photo of paper report, printed form, or screenshot</div>
+      </div>
+
+      <input type="file" id="file-input" accept="image/*,.pdf" onchange="handleFileSelect(this)">
+
+      <div class="preview-wrap" id="preview-wrap">
+        <img id="preview-img" src="" alt="Report preview">
+        <button class="preview-remove" onclick="clearUpload()" title="Remove">&times;</button>
+      </div>
+
+      <div class="confidence-strip" id="confidence-strip"></div>
+
+      <button class="btn-extract" id="btn-extract" onclick="extractFromImage()">
+        Extract data from image
+      </button>
+
+      <div class="extract-status" id="extract-status"></div>
+    </section>
+
+    <!-- Visits -->
+    <section class="card" id="visits-section">
+      <h3 class="card-title">Prenatal visits (oldest first)</h3>
+      <p class="card-desc">Add visits manually, or use the photo upload above to auto-fill.</p>
+
+      <div id="visits-container"></div>
+      <button class="btn-add" onclick="addVisit()">+ Add another visit</button>
+    </section>
+
+    <!-- Submit -->
+    <button class="btn-primary" id="btn-submit" onclick="submitPrediction()">
+      Assess maternal risk
+    </button>
+
+    <div class="loader" id="loader">Analysing patient data...</div>
+    <div class="error-box" id="error-box"></div>
+
+    <!-- Results -->
+    <section class="card result" id="result-card">
+      <div id="alert-header">
+        <span id="risk-badge" class="risk-badge"></span>
+        <p id="confidence-text" style="font-size:0.84rem;color:var(--text-muted);margin-bottom:10px;"></p>
+      </div>
+
+      <p class="section-label">Data quality</p>
+      <div class="quality-bar-wrap">
+        <div class="quality-bar" id="quality-bar" style="background:var(--primary);width:0%"></div>
+      </div>
+      <p id="quality-text" class="section-label-sm"></p>
+
+      <p class="section-label" style="margin-top:14px;margin-bottom:6px;">Why this risk level:</p>
+      <div id="reasons-list"></div>
+
+      <p class="section-label" style="margin-top:14px;margin-bottom:6px;">Action required:</p>
+      <p id="action-text" style="font-size:0.92rem;line-height:1.5;"></p>
+
+      <div class="transfer-box" id="transfer-box" style="display:none;">
+        <strong>Transfer order:</strong>
+        <p id="transfer-text" style="margin-top:6px;"></p>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
