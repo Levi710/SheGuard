@@ -1,8 +1,22 @@
-# api/extract_report.py
+# api/extract_report.py — BATTLE-HARDENED VERSION
 """
-MamaGuard — Report Extraction (OCR)
-Ensemble preprocessing × ensemble OCR for extracting prenatal data from images.
-Handles screenshots, paper photos, scans, low-light, rotated, colored forms, etc.
+WHY THIS FILE EXISTS:
+Handles every realistic image a health worker might upload:
+  - Screenshot (dark or light theme, phone or computer)
+  - Photo of paper (possibly skewed, shadowed, crumpled)
+  - Scanned document (high resolution, clean)
+  - Low-light photo (clinic with poor lighting)
+  - Rotated image (phone held sideways)
+  - Colored background (yellow/blue/green clinic forms)
+  - Low contrast (faded ink, old paper)
+  - Glare/reflection (phone flash on glossy paper)
+  - Handwritten numbers on ruled paper
+  - Partial image (only part of the form captured)
+
+STRATEGY — ensemble preprocessing + ensemble OCR:
+We run MULTIPLE preprocessing pipelines × MULTIPLE Tesseract configs,
+score each combination by how many medically plausible values were found,
+and return the best result. This is far more robust than any single pipeline.
 """
 
 import base64
@@ -18,7 +32,8 @@ from typing import Optional, List, Tuple
 
 router = APIRouter()
 
-# Tesseract path (Windows)
+# ── Tesseract path (Windows) ──────────────────────────────────────────────────
+# Change this path only if you installed Tesseract somewhere else
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 
@@ -45,7 +60,10 @@ class ExtractResponse(BaseModel):
     raw_text:   Optional[str]  = None
 
 
-# ── Medical ranges (values outside = OCR errors, discard) ─────────────────────
+# ── Medical ranges ────────────────────────────────────────────────────────────
+# WHY: Values outside these ranges are OCR errors, not real readings.
+# We DISCARD (not clamp) out-of-range values — a clamped wrong value
+# is still wrong and could mislead the risk model.
 RANGES = {
     "age":          (10,   60),
     "systolic_bp":  (70,  200),
@@ -55,7 +73,7 @@ RANGES = {
     "heart_rate":   (40,  160),
 }
 
-# Field label aliases
+# Field label aliases — every way a clinic might write each field name
 ROW_ALIASES = {
     "age":          ["age", "years", "yr", "patient age", "age (yrs)", "age:", "a.g.e", "age/yrs"],
     "systolic_bp":  ["systolic", "sbp", "sys", "systolic bp", "bp sys", "bp(sys)",
@@ -70,7 +88,8 @@ ROW_ALIASES = {
                      "heart", "p/r", "pr", "pulse rate", "hr:", "beats/min"],
 }
 
-# Lines containing these words are skipped during parsing
+# Lines containing these words are SKIPPED during parsing
+# WHY: "Field V1 V2 V3" contains "1","2","3" which would be misread as values
 SKIP_KEYWORDS = [
     "field", "visit", "v1", "v2", "v3", "v 1", "v 2", "v 3",
     "column", "header", "parameter", "reading", "measurement",
@@ -80,6 +99,7 @@ SKIP_KEYWORDS = [
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # IMAGE PREPROCESSING PIPELINES
+# Each targets a different image problem. We run several and pick the best.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def to_gray(pil_image: Image.Image) -> np.ndarray:
@@ -88,7 +108,11 @@ def to_gray(pil_image: Image.Image) -> np.ndarray:
 
 
 def smart_upscale(gray: np.ndarray, target_width: int = 1400) -> np.ndarray:
-    """Upscale small images so Tesseract can read text reliably."""
+    """
+    WHY: Tesseract needs text to be at least 20-30px tall to read reliably.
+    Small phone screenshots or thumbnails have tiny text that OCR misses.
+    We upscale to target_width using bicubic interpolation (preserves sharp text edges).
+    """
     h, w = gray.shape
     if w < target_width:
         scale = target_width / w
@@ -98,14 +122,30 @@ def smart_upscale(gray: np.ndarray, target_width: int = 1400) -> np.ndarray:
 
 
 def detect_and_invert_if_dark(gray: np.ndarray) -> np.ndarray:
-    """Invert dark-background images for Tesseract (trained on black-on-white)."""
+    """
+    WHY: Tesseract is trained on black text on white background.
+    Dark-theme screenshots (WhatsApp dark mode, VS Code, etc.) have
+    white text on dark background — Tesseract reads nothing without inversion.
+
+    DETECTION: Mean pixel brightness < 127 = most pixels are dark = dark background.
+    We bitwise-NOT the image: every dark pixel becomes bright and vice versa.
+    """
     if np.mean(gray) < 127:
         return cv2.bitwise_not(gray)
     return gray
 
 
 def remove_shadow(gray: np.ndarray) -> np.ndarray:
-    """Remove uneven lighting via background subtraction."""
+    """
+    WHY: Phone photos of paper often have a shadow from the hand or phone body.
+    This creates uneven brightness — one corner is darker than the rest.
+
+    HOW (background subtraction):
+    1. Dilate heavily → text pixels expand and "fill in", leaving only background
+    2. Median blur → smooth the background estimate
+    3. Subtract from original → removes the background brightness variation
+    4. Normalise → stretch to full 0-255 range
+    """
     dilated = cv2.dilate(gray, np.ones((7, 7), np.uint8))
     bg      = cv2.medianBlur(dilated, 21)
     diff    = 255 - cv2.absdiff(gray, bg)
@@ -114,13 +154,28 @@ def remove_shadow(gray: np.ndarray) -> np.ndarray:
 
 
 def enhance_contrast_clahe(gray: np.ndarray) -> np.ndarray:
-    """Apply CLAHE for adaptive local contrast enhancement."""
+    """
+    WHY CLAHE (Contrast Limited Adaptive Histogram Equalisation):
+    Standard histogram equalisation boosts contrast globally but creates artifacts.
+    CLAHE works on small image tiles separately — it enhances faded ink without
+    blowing out the background, and handles images with varying contrast.
+
+    clipLimit=2.0  — prevents over-amplifying noise in flat regions
+    tileGridSize   — small enough to be local, large enough for patterns
+    """
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     return clahe.apply(gray)
 
 
 def deskew(gray: np.ndarray) -> np.ndarray:
-    """Correct image rotation using minimum-area bounding rectangle."""
+    """
+    WHY: Paper placed on a table and photographed is rarely perfectly flat.
+    Even a 3-5 degree rotation significantly confuses Tesseract.
+
+    HOW: Find all text pixel coordinates, fit a minimum-area bounding rectangle,
+    read its angle, and rotate the image to correct the skew.
+    We skip correction if the detected angle > 15 degrees (likely wrong detection).
+    """
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     coords    = np.column_stack(np.where(binary > 0))
     if len(coords) < 100:
@@ -129,7 +184,7 @@ def deskew(gray: np.ndarray) -> np.ndarray:
     if angle < -45:
         angle = 90 + angle
     if abs(angle) > 15:
-        return gray
+        return gray   # skip unreliable angle
     (h, w) = gray.shape
     M      = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
     return cv2.warpAffine(gray, M, (w, h),
@@ -138,13 +193,20 @@ def deskew(gray: np.ndarray) -> np.ndarray:
 
 
 def remove_ruled_lines(gray: np.ndarray) -> np.ndarray:
-    """Remove horizontal ruled lines that confuse text segmentation."""
+    """
+    WHY: Handwritten reports often use ruled (lined) paper.
+    Horizontal lines can break through characters, confusing Tesseract's
+    text segmentation. We detect and remove long horizontal line structures.
+
+    HOW: A very wide, 1-pixel-tall kernel detects structures that are long
+    horizontally = ruled lines. We subtract those from the image.
+    """
     kernel  = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
     lines   = cv2.morphologyEx(gray, cv2.MORPH_OPEN, kernel, iterations=2)
     return cv2.subtract(gray, lines)
 
 
-# ── 8 Preprocessing pipelines ─────────────────────────────────────────────────
+# ── 9 Preprocessing pipelines ─────────────────────────────────────────────────
 
 def pipeline_standard(gray: np.ndarray) -> np.ndarray:
     """Pipeline A: Clean printed document, white paper, good lighting."""
@@ -171,6 +233,7 @@ def pipeline_low_contrast(gray: np.ndarray) -> np.ndarray:
     gray = detect_and_invert_if_dark(gray)
     gray = enhance_contrast_clahe(gray)
     gray = cv2.fastNlMeansDenoising(gray, h=12)
+    # Unsharp mask: enhances edges by subtracting blurred version
     blurred = cv2.GaussianBlur(gray, (0, 0), 3)
     gray    = cv2.addWeighted(gray, 1.5, blurred, -0.5, 0)
     return cv2.adaptiveThreshold(gray, 255,
@@ -178,7 +241,7 @@ def pipeline_low_contrast(gray: np.ndarray) -> np.ndarray:
 
 
 def pipeline_deskewed(gray: np.ndarray) -> np.ndarray:
-    """Pipeline D: Rotated or skewed image."""
+    """Pipeline D: Rotated or skewed image (phone held sideways)."""
     gray = smart_upscale(gray)
     gray = detect_and_invert_if_dark(gray)
     gray = deskew(gray)
@@ -206,6 +269,7 @@ def pipeline_high_noise(gray: np.ndarray) -> np.ndarray:
     gray = cv2.fastNlMeansDenoising(gray, h=20,
                                      templateWindowSize=7, searchWindowSize=21)
     gray = enhance_contrast_clahe(gray)
+    # Morphological close: reconnects character strokes broken by noise
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     gray   = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel)
     _, out = cv2.threshold(gray, 0, 255,
@@ -214,7 +278,9 @@ def pipeline_high_noise(gray: np.ndarray) -> np.ndarray:
 
 
 def pipeline_screenshot(gray: np.ndarray) -> np.ndarray:
-    """Pipeline G: Screenshot (pixel-perfect, minimal preprocessing needed)."""
+    """
+    Pipeline G: Screenshot (phone, computer, WhatsApp, EHR system).
+    """
     gray = smart_upscale(gray)
     gray = detect_and_invert_if_dark(gray)
     _, out = cv2.threshold(gray, 0, 255,
@@ -222,8 +288,15 @@ def pipeline_screenshot(gray: np.ndarray) -> np.ndarray:
     return out
 
 
+def pipeline_inverted(gray: np.ndarray) -> np.ndarray:
+    """Pipeline H: Explicit inversion for white-on-dark text."""
+    return cv2.bitwise_not(gray)
+
+
 def pipeline_color_form(pil_image: Image.Image) -> np.ndarray:
-    """Pipeline H: Colored background — uses LAB color space for contrast."""
+    """
+    Pipeline I: Colored background (yellow paper, green header, blue stripes).
+    """
     img_bgr = cv2.cvtColor(np.array(pil_image.convert("RGB")), cv2.COLOR_RGB2BGR)
     lab     = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
     l_chan  = lab[:, :, 0]
@@ -233,11 +306,6 @@ def pipeline_color_form(pil_image: Image.Image) -> np.ndarray:
     l_chan  = cv2.fastNlMeansDenoising(l_chan, h=10)
     return cv2.adaptiveThreshold(l_chan, 255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10)
-
-
-def pipeline_inverted(gray: np.ndarray) -> np.ndarray:
-    """Explicitly invert image (for white-on-dark text)."""
-    return cv2.bitwise_not(gray)
 
 
 PIPELINE_FNS = {
@@ -251,6 +319,7 @@ PIPELINE_FNS = {
     "inverted":     pipeline_inverted,
 }
 
+# Pipeline order per detected image type
 PIPELINE_ORDERS = {
     "screenshot":   ["screenshot", "inverted", "standard"],
     "dark_bg":      ["inverted", "screenshot", "standard"],
@@ -304,7 +373,7 @@ OCR_CONFIGS = [
 
 
 def run_ocr_best(processed_img: np.ndarray) -> str:
-    """Run Tesseract with all PSM configs and return the output with most digits."""
+    """Run Tesseract and return output with most digits."""
     pil         = Image.fromarray(processed_img)
     best_text   = ""
     best_digits = 0
@@ -330,7 +399,7 @@ def find_numbers(text: str) -> List[float]:
 
 
 def match_label(line: str) -> Optional[str]:
-    """Check if a line contains a known field name alias. Returns field key or None."""
+    """Check if a line contains a known field name alias."""
     ll = line.lower()
     for field, aliases in ROW_ALIASES.items():
         for alias in aliases:
@@ -346,10 +415,7 @@ def is_skip_line(line: str) -> bool:
 
 
 def parse_table_format(raw_text: str) -> List[dict]:
-    """
-    Parser A -- Row-per-field table layout.
-    Upgraded to look at subsequent lines if the label line is empty.
-    """
+    """Parser A -- Row-per-field table layout."""
     lines      = [l.strip() for l in raw_text.split('\n') if l.strip()]
     field_vals = {}
     max_visits = 0
@@ -357,12 +423,11 @@ def parse_table_format(raw_text: str) -> List[dict]:
     for idx, line in enumerate(lines):
         if is_skip_line(line):
             continue
-
         field = match_label(line)
         if field is None:
             continue
 
-        # Look for numbers in current line, and if none, the next 2 lines
+        # Robust lookahead: look for numbers in current line + next 2 lines
         search_chunk = line
         if idx + 1 < len(lines): search_chunk += " " + lines[idx + 1]
         if idx + 2 < len(lines): search_chunk += " " + lines[idx + 2]
@@ -370,9 +435,7 @@ def parse_table_format(raw_text: str) -> List[dict]:
         numbers = find_numbers(search_chunk)
         lo, hi  = RANGES[field]
         valid   = [n for n in numbers if lo <= n <= hi]
-
         if valid:
-            # If we already have values for this field, append or merge
             if field in field_vals:
                 field_vals[field].extend(valid)
             else:
@@ -382,7 +445,6 @@ def parse_table_format(raw_text: str) -> List[dict]:
     if not field_vals:
         return []
 
-    # Assemble into visits
     results = []
     for i in range(max_visits):
         visit = {}
@@ -390,21 +452,19 @@ def parse_table_format(raw_text: str) -> List[dict]:
             vals = field_vals.get(field, [])
             visit[field] = vals[i] if i < len(vals) else None
         results.append(visit)
-
     return results
 
 
 def parse_column_format(raw_text: str) -> List[dict]:
-    """Parser B -- Column-per-visit layout with header row."""
+    """Parser B -- Column-per-visit layout."""
     lines         = [l.strip() for l in raw_text.split('\n') if l.strip()]
     header_idx    = -1
     header_fields = []
 
     for i, line in enumerate(lines):
-        # Relaxed split: look for 1+ spaces or tabs
+        # Relaxed split for mobile OCR
         parts = re.split(r'\s{1,}|\t', line)
         known = [match_label(p) for p in parts]
-        # Must find at least 2 known labels to be a header
         if sum(f is not None for f in known) >= 2:
             header_idx    = i
             header_fields = known
@@ -414,14 +474,11 @@ def parse_column_format(raw_text: str) -> List[dict]:
         return []
 
     visits = []
-    # Maximum lookahead for values
     for line in lines[header_idx + 1:header_idx + 10]:
         if is_skip_line(line):
             continue
-        # Use simple split for data rows too
         parts = re.split(r'\s{1,}|\t', line)
         if not parts: continue
-
         visit = {}
         for col_idx, field in enumerate(header_fields):
             if field is None or col_idx >= len(parts):
@@ -438,7 +495,7 @@ def parse_column_format(raw_text: str) -> List[dict]:
 
 
 def parse_key_value_format(raw_text: str) -> List[dict]:
-    """Parser C — Key-value format (one field per line)."""
+    """Parser C -- Key-value format."""
     lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
     visit = {}
 
@@ -449,7 +506,6 @@ def parse_key_value_format(raw_text: str) -> List[dict]:
         if field is None:
             continue
 
-        # Handle BP written as "112/74"
         bp_match = re.search(r'(\d{2,3})\s*/\s*(\d{2,3})', line)
         if bp_match and field in ("systolic_bp", "diastolic_bp"):
             s, d = float(bp_match.group(1)), float(bp_match.group(2))
@@ -506,12 +562,8 @@ def extract_patient_id(raw_text: str) -> Optional[str]:
 
 @router.post("/extract-report", response_model=ExtractResponse)
 async def extract_report(request: ExtractRequest):
-    """
-    POST /extract-report — Offline OCR extraction from prenatal report images.
-    Runs multiple preprocessing pipelines × OCR configs, returns best result.
-    """
+    """POST /extract-report — Offline OCR extraction."""
 
-    # 1. Decode image
     try:
         image_bytes = base64.b64decode(request.image_base64)
         pil_image   = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -521,12 +573,10 @@ async def extract_report(request: ExtractRequest):
             detail=f"Could not decode image: {e}"
         )
 
-    # 2. Detect image type → get pipeline order
     gray      = to_gray(pil_image)
     img_type  = detect_image_type(gray, pil_image)
     pipelines = PIPELINE_ORDERS.get(img_type, PIPELINE_ORDERS["standard"])
 
-    # 3. Run each pipeline → OCR → parse → score
     best_visits   = []
     best_score    = 0
     best_text     = ""
@@ -599,10 +649,10 @@ async def extract_report(request: ExtractRequest):
     confidence = round(total_filled / max(total_possible, 1), 2)
 
     notes = (
-        f"Image type: {img_type} | "
-        f"Pipeline: {best_pipeline} | "
+        f"Type: {img_type} | "
+        f"Pipe: {best_pipeline} | "
         f"Parser: {best_parser} | "
-        f"{total_filled}/{total_possible} fields extracted."
+        f"{total_filled}/{total_possible} fields."
     )
 
     return ExtractResponse(
