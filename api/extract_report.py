@@ -57,17 +57,17 @@ RANGES = {
 
 # Field label aliases
 ROW_ALIASES = {
-    "age":          ["age", "years", "yr", "patient age", "age (yrs)"],
-    "systolic_bp":  ["systolic", "sbp", "sys", "systolic bp", "bp sys",
-                     "upper bp", "s.b.p", "s bp", "syst"],
-    "diastolic_bp": ["diastolic", "dbp", "dia", "diastolic bp", "bp dia",
-                     "lower bp", "d.b.p", "d bp", "diast"],
-    "blood_sugar":  ["blood sugar", "bs", "glucose", "bg", "blood glucose",
-                     "sugar", "b.s", "rbs", "fbs", "ppbs", "glu"],
-    "body_temp":    ["temp", "temperature", "body temp", "tmp", "fever",
-                     "body temperature", "b.temp", "t (c)", "t(c)"],
-    "heart_rate":   ["heart rate", "hr", "pulse", "bpm", "heartrate",
-                     "heart", "p/r", "pr", "pulse rate"],
+    "age":          ["age", "years", "yr", "patient age", "age (yrs)", "age:", "a.g.e", "age/yrs"],
+    "systolic_bp":  ["systolic", "sbp", "sys", "systolic bp", "bp sys", "bp(sys)",
+                     "upper bp", "s.b.p", "s bp", "syst", "bp systolic", "bp - sys"],
+    "diastolic_bp": ["diastolic", "dbp", "dia", "diastolic bp", "bp dia", "bp(dia)",
+                     "lower bp", "d.b.p", "d bp", "diast", "bp diastolic", "bp - dia"],
+    "blood_sugar":  ["blood sugar", "bs", "glucose", "bg", "blood glucose", "bld sugar",
+                     "sugar", "b.s", "rbs", "fbs", "ppbs", "glu", "glc", "sugr"],
+    "body_temp":    ["temp", "temperature", "body temp", "tmp", "fever", "t(c)",
+                     "body temperature", "b.temp", "t (c)", "t(c)", "bt", "temp:"],
+    "heart_rate":   ["heart rate", "hr", "pulse", "bpm", "heartrate", "h.r",
+                     "heart", "p/r", "pr", "pulse rate", "hr:", "beats/min"],
 }
 
 # Lines containing these words are skipped during parsing
@@ -235,6 +235,11 @@ def pipeline_color_form(pil_image: Image.Image) -> np.ndarray:
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10)
 
 
+def pipeline_inverted(gray: np.ndarray) -> np.ndarray:
+    """Explicitly invert image (for white-on-dark text)."""
+    return cv2.bitwise_not(gray)
+
+
 PIPELINE_FNS = {
     "standard":     pipeline_standard,
     "shadow":       pipeline_shadow,
@@ -243,15 +248,16 @@ PIPELINE_FNS = {
     "ruled_paper":  pipeline_ruled_paper,
     "high_noise":   pipeline_high_noise,
     "screenshot":   pipeline_screenshot,
+    "inverted":     pipeline_inverted,
 }
 
 PIPELINE_ORDERS = {
-    "screenshot":   ["screenshot", "standard", "low_contrast"],
-    "dark_bg":      ["screenshot", "standard", "shadow"],
-    "low_contrast": ["low_contrast", "shadow", "standard", "high_noise"],
+    "screenshot":   ["screenshot", "inverted", "standard"],
+    "dark_bg":      ["inverted", "screenshot", "standard"],
+    "low_contrast": ["low_contrast", "shadow", "standard"],
     "colored_form": ["color_form", "low_contrast", "standard"],
-    "camera_photo": ["shadow", "deskewed", "ruled_paper", "standard"],
-    "standard":     ["standard", "shadow", "low_contrast", "deskewed"],
+    "camera_photo": ["shadow", "deskewed", "ruled_paper"],
+    "standard":     ["standard", "shadow", "low_contrast"],
 }
 
 

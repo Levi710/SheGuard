@@ -177,25 +177,7 @@ async function extractFromImage() {
     const data = await resp.json();
     console.log("Extraction successful:", data);
 
-    if (data.patient_id) {
-      const pidField = document.getElementById("patient_id");
-      if (!pidField.value) {
-        pidField.value = data.patient_id;
-        pidField.classList.add("autofilled");
-      }
-    }
-
-    // Clear existing visits
-    document.getElementById("visits-container").innerHTML = "";
-    visitCount = 0;
-
-    const visits = data.visits || [];
-    if (visits.length === 0) {
-      throw new Error("No visit data found in the image. Try a clearer photo.");
-    }
-
-    visits.forEach(visit => addVisit(visit));
-
+    // 1. Update debug/confidence strip immediately (so we see what it read)
     const confPct = Math.round((data.confidence !== undefined ? data.confidence : 1.0) * 100);
     const confColor = confPct >= 80 ? "var(--green)" : confPct >= 60 ? "var(--amber)" : "var(--red)";
     const confEl = document.getElementById("confidence-strip");
@@ -203,16 +185,31 @@ async function extractFromImage() {
     confEl.innerHTML = `
       <div style="margin-bottom:8px;">
         <span style="color:${confColor};font-weight:600;">
-          Extraction confidence: ${confPct}%
+          Extraction: ${confPct}% confidence
         </span>
-        ${confPct < 80 ? " -- verify fields" : " -- extraction successful"}
+        ${confPct < 60 ? " -- partial match" : " -- analysis complete"}
       </div>
       ${data.notes ? `<div style="font-size:0.85rem;color:var(--text-muted);border-top:1px solid #eee;padding-top:8px;">${data.notes}</div>` : ""}
-      ${data.raw_text ? `<div style="font-size:0.75rem;color:#999;margin-top:4px;font-family:monospace;background:#f9f9f9;padding:4px;border-radius:4px;">OCR: ${data.raw_text}...</div>` : ""}
+      ${data.raw_text ? `<div style="font-size:0.75rem;color:#999;margin-top:4px;font-family:monospace;background:#f9f9f9;padding:4px;border-radius:4px;word-break:break-all;">OCR: ${data.raw_text.substring(0, 400)}...</div>` : ""}
     `;
 
+    // 2. Handle visit population
+    const visits = data.visits || [];
+    if (visits.length === 0) {
+      throw new Error("Found text but no structured numbers. Try a clearer photo or different layout.");
+    }
+
+    if (data.patient_id) {
+      const pidField = document.getElementById("patient_id");
+      if (!pidField.value) { pidField.value = data.patient_id; }
+    }
+
+    document.getElementById("visits-container").innerHTML = "";
+    visitCount = 0;
+    visits.forEach(visit => addVisit(visit));
+
     statusEl.className = "extract-status success";
-    statusEl.textContent = `Extracted ${visits.length} visit${visits.length > 1 ? "s" : ""}. Highlighted fields are auto-filled.`;
+    statusEl.textContent = `Successfully auto-filled ${visits.length} visit${visits.length > 1 ? "s" : ""}.`;
 
   } catch (err) {
     statusEl.className = "extract-status error";
