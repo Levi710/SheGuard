@@ -1,5 +1,5 @@
 """
-MamaGuard — FastAPI Server
+MamaGuard -- FastAPI Server
 Maternal risk prediction API with clinical safety net and explainability.
 """
 
@@ -9,6 +9,8 @@ import pickle
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from api.schemas import PredictionRequest, PredictionResponse, AlertTier
 from api.alert_logic import compute_alert_tier, generate_action_text
@@ -16,9 +18,9 @@ from src.model import MamaGuardMamba3
 from src.explainability import explain_prediction
 from api.extract_report import router as extract_router
 
-# ─── App setup ────────────────────────────────────────────────────────────────
+# --- App setup ----------------------------------------------------------------
 app = FastAPI(
-    title="MamaGuard — Maternal Risk API",
+    title="SheGuard -- Maternal Risk API",
     description=(
         "Predicts maternal mortality risk from prenatal visit sequences. "
         "Built with Mamba3 SSM for deployment in low-resource clinics."
@@ -71,28 +73,17 @@ async def load_model():
     print(f"MamaGuard model loaded on {device}")
 
 
-# ─── Routes ───────────────────────────────────────────────────────────────────
+# --- Routes -------------------------------------------------------------------
 
-@app.get("/")
-async def root():
-    """Health check endpoint."""
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for load balancers."""
     return {
-        "status":       "ok",
+        "status":       "healthy",
         "model_loaded": model is not None,
         "device":       device,
         "version":      "1.0.0",
     }
-
-
-@app.get("/health")
-async def health_check():
-    """Detailed health endpoint for load balancers."""
-    if model is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Model not loaded. Run python -m src.train first."
-        )
-    return {"status": "healthy", "model": "MamaGuard-Mamba3-v1"}
 
 
 @app.post("/predict", response_model=PredictionResponse)
@@ -212,5 +203,22 @@ async def get_stats():
     return {
         "patients_assessed": total,
         "by_tier": by_tier,
-        "model_version": "MamaGuard-Mamba3-v1",
+        "model_version": "SheGuard-Mamba3-v1",
     }
+
+
+# --- Dashboard static files ---------------------------------------------------
+
+DASHBOARD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard")
+
+if os.path.isdir(DASHBOARD_DIR):
+    app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="dashboard-static")
+
+
+@app.get("/")
+async def serve_dashboard():
+    """Serve the dashboard HTML at root."""
+    index_path = os.path.join(DASHBOARD_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path, media_type="text/html")
+    return {"status": "ok", "model_loaded": model is not None, "device": device}
