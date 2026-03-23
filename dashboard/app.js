@@ -196,16 +196,19 @@ async function extractFromImage() {
 
     visits.forEach(visit => addVisit(visit));
 
-    const confPct = Math.round((data.confidence || 1.0) * 100);
+    const confPct = Math.round((data.confidence !== undefined ? data.confidence : 1.0) * 100);
     const confColor = confPct >= 80 ? "var(--green)" : confPct >= 60 ? "var(--amber)" : "var(--red)";
     const confEl = document.getElementById("confidence-strip");
     confEl.style.display = "block";
     confEl.innerHTML = `
-      <span style="color:${confColor};font-weight:600;">
-        Extraction confidence: ${confPct}%
-      </span>
-      ${confPct < 80 ? " -- verify highlighted fields" : " -- extraction successful"}
-      ${data.notes ? `<br><small>${data.notes}</small>` : ""}
+      <div style="margin-bottom:8px;">
+        <span style="color:${confColor};font-weight:600;">
+          Extraction confidence: ${confPct}%
+        </span>
+        ${confPct < 80 ? " -- verify fields" : " -- extraction successful"}
+      </div>
+      ${data.notes ? `<div style="font-size:0.85rem;color:var(--text-muted);border-top:1px solid #eee;padding-top:8px;">${data.notes}</div>` : ""}
+      ${data.raw_text ? `<div style="font-size:0.75rem;color:#999;margin-top:4px;font-family:monospace;background:#f9f9f9;padding:4px;border-radius:4px;">OCR: ${data.raw_text}...</div>` : ""}
     `;
 
     statusEl.className = "extract-status success";

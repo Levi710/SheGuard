@@ -389,15 +389,17 @@ def parse_table_format(raw_text: str) -> List[dict]:
 
 
 def parse_column_format(raw_text: str) -> List[dict]:
-    """Parser B — Column-per-visit layout with header row."""
+    """Parser B -- Column-per-visit layout with header row."""
     lines         = [l.strip() for l in raw_text.split('\n') if l.strip()]
     header_idx    = -1
     header_fields = []
 
     for i, line in enumerate(lines):
-        parts = re.split(r'\s{2,}|\t', line)
+        # Relaxed split: look for 1+ spaces or tabs
+        parts = re.split(r'\s{1,}|\t', line)
         known = [match_label(p) for p in parts]
-        if sum(f is not None for f in known) >= 3:
+        # Must find at least 2 known labels to be a header
+        if sum(f is not None for f in known) >= 2:
             header_idx    = i
             header_fields = known
             break
@@ -406,10 +408,14 @@ def parse_column_format(raw_text: str) -> List[dict]:
         return []
 
     visits = []
-    for line in lines[header_idx + 1:]:
+    # Maximum lookahead for values
+    for line in lines[header_idx + 1:header_idx + 10]:
         if is_skip_line(line):
             continue
-        parts = re.split(r'\s{2,}|\t', line)
+        # Use simple split for data rows too
+        parts = re.split(r'\s{1,}|\t', line)
+        if not parts: continue
+
         visit = {}
         for col_idx, field in enumerate(header_fields):
             if field is None or col_idx >= len(parts):
@@ -551,15 +557,14 @@ async def extract_report(request: ExtractRequest):
 
     # 4. Handle complete failure
     if not best_visits or best_score == 0:
-        fallback_text = all_texts[0][:300] if all_texts else "No text extracted"
+        fallback_text = all_texts[0][:200] if all_texts else "No text extracted"
         return ExtractResponse(
-            visits     = [ExtractedVisit()],
+            visits     = [],
             patient_id = None,
             notes      = (
                 f"Image type detected: {img_type}. "
                 "No structured data could be extracted. "
-                "Likely causes: very blurry, pure handwriting, or unusual layout. "
-                f"Raw OCR text: {fallback_text}"
+                "Check image quality or unusual layout."
             ),
             confidence = 0.0,
             raw_text   = fallback_text,
