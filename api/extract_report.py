@@ -431,9 +431,15 @@ def parse_table_format(raw_text: str) -> List[dict]:
             continue
 
         # Robust lookahead: look for numbers in current line + next 2 lines
+        # BUT: STOP if we see ANOTHER known label in the next lines
         search_chunk = line
-        if idx + 1 < len(lines): search_chunk += " " + lines[idx + 1]
-        if idx + 2 < len(lines): search_chunk += " " + lines[idx + 2]
+        for offset in [1, 2]:
+            if idx + offset < len(lines):
+                next_line = lines[idx + offset]
+                # If the next line has IT'S OWN label, stop search here
+                if match_label(next_line) is not None:
+                    break
+                search_chunk += " " + next_line
 
         numbers = find_numbers(search_chunk)
         lo, hi  = RANGES[field]
